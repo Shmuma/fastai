@@ -30,9 +30,16 @@ os.makedirs(TGT_PATH, exist_ok=True)
 # In[22]:
 
 
-#df_label_names = pd.read_csv(f'{DATA_PATH}class-descriptions.csv')
+print("Loading labels data frame...")
+df_label_names = pd.read_csv(f'{DATA_PATH}class-descriptions.csv')
 print("Loading bounding box data...")
 df_bboxes = pd.read_csv(f'{DATA_PATH}train_bounding_boxes.csv')
+
+
+# In[52]:
+
+
+labels_set = set(df_label_names.label_code.tolist())
 
 
 # In[42]:
@@ -46,7 +53,7 @@ if not os.path.exists(TRAIN_PATH):
 # In[36]:
 
 
-class Job:
+class Job:    
     def __init__(self, img_id):
         self.img_id = img_id
         self.sub_map = {}
@@ -57,6 +64,8 @@ class Job:
         if self.img_id != row['ImageID']:
             return False
         label = row['LabelName']
+        if label not in labels_set:
+            return True
         bbox = [min(1.0, max(0, round(row[t], 5))) for t in ('XMin', 'YMin', 'XMax', 'YMax')]
         bbox = tuple(bbox)
         tgt_img_id = self.sub_map.get(bbox)
@@ -71,6 +80,9 @@ class Job:
         for img, label in self.images_labels:
             df = df.append({'ImageID': img, 'LabelName': label}, ignore_index=True)
         return df
+    
+    def something_to_submit(self):
+        return len(self.images_labels) > 0
     
     def submit(self, executor):
         return executor.submit(do_job, self.img_id, self.sub_map)
@@ -102,7 +114,7 @@ def do_job(img_id, sub_map):
 # In[46]:
 
 
-NUM_JOBS = 6
+NUM_JOBS = 3
 MAX_CONCURRENT_JOBS = 10000
 WAIT_SECONDS = 10
 #df = df_bboxes[:30000]
@@ -123,16 +135,18 @@ with futures.ThreadPoolExecutor(max_workers=NUM_JOBS) as executor:
             if job is None:
                 job = Job(img_id)
             if not job.add_row(row):
-                fs.append(job.submit(executor))
-                tgt_df = job.add_labels(tgt_df)
+                if job.something_to_submit():
+                    fs.append(job.submit(executor))
+                    tgt_df = job.add_labels(tgt_df)
                 job = Job(img_id)
                 job.add_row(row)
                 if len(fs) >= MAX_CONCURRENT_JOBS:                
                     done_fs, fs = futures.wait(fs, timeout=WAIT_SECONDS)
                     fs = list(fs)
                     print("Collected %d completed jobs" % len(done_fs))
-        fs.append(job.submit(executor))
-        tgt_df = job.add_labels(tgt_df)
+        if job.something_to_submit():
+            fs.append(job.submit(executor))
+            tgt_df = job.add_labels(tgt_df)
         tgt_df.to_csv(f'{TGT_PATH}train_proc.csv', index=False)
         print("Waiting for %d jobs to be completed" % len(fs))
         futures.wait(fs)

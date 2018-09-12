@@ -82,6 +82,7 @@ def do_job(img_id, sub_map):
         if os.path.exists(tgt_fname):
             continue
         processing_needed = True
+        break
     if not processing_needed:
         return
     

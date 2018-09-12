@@ -38,11 +38,9 @@ df_bboxes = pd.read_csv(f'{DATA_PATH}train_bounding_boxes.csv')
 # In[42]:
 
 
-print("Cleaning up old data...")
 TRAIN_PATH = f'{TGT_PATH}train/'
-if os.path.exists(TRAIN_PATH):
-    shutil.rmtree(TRAIN_PATH)
-os.makedirs(TRAIN_PATH)
+if not os.path.exists(TRAIN_PATH):
+    os.makedirs(TRAIN_PATH)
 
 
 # In[36]:
@@ -78,23 +76,34 @@ class Job:
         return executor.submit(do_job, self.img_id, self.sub_map)
         
 def do_job(img_id, sub_map):
+    processing_needed = False
+    for bbox, tgt_img_id in sub_map.items():
+        tgt_fname = f'{TRAIN_PATH}{tgt_img_id}.jpg'
+        if os.path.exists(tgt_fname):
+            continue
+        processing_needed = True
+    if not processing_needed:
+        return
+    
     fname = f'{DATA_PATH}train/{img_id}.jpg'
     img = PIL.Image.open(fname)
     w, h = img.size
     for bbox, tgt_img_id in sub_map.items():
+        tgt_fname = f'{TRAIN_PATH}{tgt_img_id}.jpg'
+        if os.path.exists(tgt_fname):
+            continue
         crop = (w * bbox[0], h * bbox[1], w * bbox[2], h * bbox[3])
         crop = list(map(int, crop))
         tgt_img = img.crop(crop)
-        tgt_fname = f'{TRAIN_PATH}{tgt_img_id}.jpg'
         tgt_img.save(tgt_fname)
 
 
 # In[46]:
 
 
-NUM_JOBS = 4
-MAX_CONCURRENT_JOBS = 1000
-WAIT_SECONDS = 1
+NUM_JOBS = 6
+MAX_CONCURRENT_JOBS = 10000
+WAIT_SECONDS = 10
 #df = df_bboxes[:30000]
 df = df_bboxes
 
@@ -107,22 +116,26 @@ tgt_df = pd.DataFrame(columns=['ImageID', 'LabelName'])
 fs = []
 with futures.ThreadPoolExecutor(max_workers=NUM_JOBS) as executor:
     job = None
-    for idx, row in tqdm(df.iterrows(), total=len(df)):
-        img_id = row['ImageID']
-        if job is None:
-            job = Job(img_id)
-        if not job.add_row(row):
-            fs.append(job.submit(executor))
-            tgt_df = job.add_labels(tgt_df)
-            job = Job(img_id)
-            job.add_row(row)
-            if len(fs) == MAX_CONCURRENT_JOBS:                
-                print("Have %d jobs to do, waiting for %d seconds" % (len(fs), WAIT_SECONDS))
-                _, fs = futures.wait(fs, timeout=WAIT_SECONDS)
-                fs = list(fs)
-    fs.append(job.submit(executor))
-    tgt_df = job.add_labels(tgt_df)
-    tgt_df.to_csv(f'{TGT_PATH}train_proc.csv', index=False)
-    print("Waiting for %d jobs to be completed" % len(fs))
-    futures.wait(fs)
+    try:
+        for idx, row in tqdm(df.iterrows(), total=len(df)):
+            img_id = row['ImageID']
+            if job is None:
+                job = Job(img_id)
+            if not job.add_row(row):
+                fs.append(job.submit(executor))
+                tgt_df = job.add_labels(tgt_df)
+                job = Job(img_id)
+                job.add_row(row)
+                if len(fs) >= MAX_CONCURRENT_JOBS:                
+                    done_fs, fs = futures.wait(fs, timeout=WAIT_SECONDS)
+                    fs = list(fs)
+                    print("Collected %d completed jobs" % len(done_fs))
+        fs.append(job.submit(executor))
+        tgt_df = job.add_labels(tgt_df)
+        tgt_df.to_csv(f'{TGT_PATH}train_proc.csv', index=False)
+        print("Waiting for %d jobs to be completed" % len(fs))
+        futures.wait(fs)
+    except KeyboardInterrupt:
+        print("Interrupt pressed, waiting for %d jobs to be completed gracefully" % len(fs))
+        futures.wait(fs)
 

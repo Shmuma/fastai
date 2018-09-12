@@ -64,9 +64,10 @@ for idx, row in tqdm(df.iterrows(), total=len(df)):
         img = PIL.Image.open(fname)
         sub_idx = 0
         sub_map = {}
-    h,w = img.size
+    w, h = img.size
     bbox = round(w*row['XMin'], 0), round(h*row['YMin'], 0), round(w*row['XMax'], 0), round(h*row['YMax'], 0)
     bbox = tuple(map(int, bbox))
+    bbox = (max(0, bbox[0]), max(0, bbox[1]), max(w, bbox[2]), max(h, bbox[3]))
     tgt_img_id = sub_map.get(bbox)
     if tgt_img_id is None:
         tgt_img_id = f'{img_id}_{sub_idx:05}'

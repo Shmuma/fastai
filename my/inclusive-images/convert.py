@@ -18,6 +18,7 @@ import concurrent.futures as futures
 
 
 DATA_PATH = "/mnt/kaggle/inclusive-images-challenge/"
+RAW_PATH = "/mnt/kaggle-fast/inclusive-images-challenge/raw/"
 TGT_PATH = "/mnt/kaggle-fast/inclusive-images-challenge/"
 
 
@@ -42,12 +43,17 @@ df_bboxes = pd.read_csv(f'{DATA_PATH}train_bounding_boxes.csv')
 labels_set = set(df_label_names.label_code.tolist())
 
 
-# In[42]:
+# In[53]:
 
 
 TRAIN_PATH = f'{TGT_PATH}train/'
+SUFFIXES = ('0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'a', 'b', 'c', 'd', 'e', 'f')
 if not os.path.exists(TRAIN_PATH):
     os.makedirs(TRAIN_PATH)
+for s in SUFFIXES:
+    p = f'{TRAIN_PATH}train_{s}/'
+    if not os.path.exists(p):
+        os.makedirs(p)
 
 
 # In[36]:
@@ -78,7 +84,7 @@ class Job:
 
     def add_labels(self, df):
         for img, label in self.images_labels:
-            df = df.append({'ImageID': img, 'LabelName': label}, ignore_index=True)
+            df = df.append({'ImageID': f'train_{img[0]}/{img}', 'LabelName': label}, ignore_index=True)
         return df
     
     def something_to_submit(self):
@@ -90,7 +96,7 @@ class Job:
 def do_job(img_id, sub_map):
     processing_needed = False
     for bbox, tgt_img_id in sub_map.items():
-        tgt_fname = f'{TRAIN_PATH}{tgt_img_id}.jpg'
+        tgt_fname = f'{TRAIN_PATH}train_{tgt_img_id[0]}/{tgt_img_id}.jpg'
         if os.path.exists(tgt_fname):
             continue
         processing_needed = True
@@ -98,11 +104,13 @@ def do_job(img_id, sub_map):
     if not processing_needed:
         return
     
-    fname = f'{DATA_PATH}train/{img_id}.jpg'
+    fname = f'{RAW_PATH}train_{img_id[0]}/{img_id}.jpg'
+    if not os.path.exists(fname):
+        return
     img = PIL.Image.open(fname)
     w, h = img.size
     for bbox, tgt_img_id in sub_map.items():
-        tgt_fname = f'{TRAIN_PATH}{tgt_img_id}.jpg'
+        tgt_fname = f'{TRAIN_PATH}train_{tgt_img_id[0]}/{tgt_img_id}.jpg'
         if os.path.exists(tgt_fname):
             continue
         crop = (w * bbox[0], h * bbox[1], w * bbox[2], h * bbox[3])
@@ -114,9 +122,9 @@ def do_job(img_id, sub_map):
 # In[46]:
 
 
-NUM_JOBS = 3
+NUM_JOBS = 4
 MAX_CONCURRENT_JOBS = 10000
-WAIT_SECONDS = 10
+WAIT_SECONDS = 30
 #df = df_bboxes[:30000]
 df = df_bboxes
 
@@ -143,7 +151,7 @@ with futures.ThreadPoolExecutor(max_workers=NUM_JOBS) as executor:
                 if len(fs) >= MAX_CONCURRENT_JOBS:                
                     done_fs, fs = futures.wait(fs, timeout=WAIT_SECONDS)
                     fs = list(fs)
-                    print("Collected %d completed jobs" % len(done_fs))
+                    print("Collected %d completed jobs, cur ImageID=%s" % (len(done_fs), img_id))
         if job.something_to_submit():
             fs.append(job.submit(executor))
             tgt_df = job.add_labels(tgt_df)

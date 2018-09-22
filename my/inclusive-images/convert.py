@@ -3,7 +3,7 @@
 
 # # Data conversion for training the model
 
-# In[32]:
+# In[1]:
 
 
 import os
@@ -14,36 +14,37 @@ from tqdm import tqdm
 import concurrent.futures as futures
 
 
-# In[20]:
+# In[3]:
 
 
-DATA_PATH = "/mnt/kaggle/inclusive-images-challenge/"
-RAW_PATH = "/mnt/kaggle-fast/inclusive-images-challenge/raw/"
-TGT_PATH = "/mnt/kaggle-fast/inclusive-images-challenge/"
+DATA_PATH = "/mnt/stg/inclusive-images-challenge/"
+RAW_PATH = f'{DATA_PATH}raw/'
+TGT_PATH = f'{DATA_PATH}train/'
 
 
-# In[21]:
+# In[4]:
 
 
 os.makedirs(TGT_PATH, exist_ok=True)
 
 
-# In[22]:
+# In[5]:
 
 
 print("Loading labels data frame...")
 df_label_names = pd.read_csv(f'{DATA_PATH}class-descriptions.csv')
+df_trainable_labels = pd.read_csv(f'{DATA_PATH}classes-trainable.csv')
 print("Loading bounding box data...")
 df_bboxes = pd.read_csv(f'{DATA_PATH}train_bounding_boxes.csv')
 
 
-# In[52]:
+# In[6]:
 
 
-labels_set = set(df_label_names.label_code.tolist())
+labels_set = set(df_trainable_labels.label_code.tolist())
 
 
-# In[53]:
+# In[8]:
 
 
 TRAIN_PATH = f'{TGT_PATH}train/'
@@ -56,7 +57,7 @@ for s in SUFFIXES:
         os.makedirs(p)
 
 
-# In[36]:
+# In[9]:
 
 
 class Job:    
@@ -122,11 +123,14 @@ def do_job(img_id, sub_map):
 # In[46]:
 
 
-NUM_JOBS = 4
+NUM_JOBS = 6
 MAX_CONCURRENT_JOBS = 10000
 WAIT_SECONDS = 30
 #df = df_bboxes[:30000]
 df = df_bboxes
+#ignore_groups = set(['0', '1'])
+#ignore_groups = {'0', '1', '2', '3'} # 4 and 7 is fully unpacked, so, start it
+ignore_groups = set()
 
 
 # In[47]:
@@ -140,6 +144,8 @@ with futures.ThreadPoolExecutor(max_workers=NUM_JOBS) as executor:
     try:
         for idx, row in tqdm(df.iterrows(), total=len(df)):
             img_id = row['ImageID']
+            if img_id[0] in ignore_groups:
+                continue
             if job is None:
                 job = Job(img_id)
             if not job.add_row(row):
